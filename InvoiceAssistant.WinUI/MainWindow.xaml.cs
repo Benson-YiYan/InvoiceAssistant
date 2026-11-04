@@ -43,7 +43,7 @@ public sealed partial class MainWindow : Window
     private bool _isReloading;
     private AppSettings _settings = new();
     private const string CurrentVersion = "0.2.0";
-    private const string UpdateManifestUrl = "https://raw.githubusercontent.com/Benson-YiYan/InvoiceAssistant/main/windows/windows-update.json";
+    private const string UpdateManifestUrl = "https://raw.githubusercontent.com/Benson-YiYan/InvoiceAssistant/main/windows-update.json";
 
     public MainWindow()
     {
