@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Runtime.CompilerServices;
@@ -10,6 +11,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Net.Http;
 using Windows.Data.Pdf;
 using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
@@ -37,6 +41,9 @@ public sealed partial class MainWindow : Window
     private readonly ObservableCollection<FolderRecord> _folders = [];
     private string _currentFolderId = "root";
     private bool _isReloading;
+    private AppSettings _settings = new();
+    private const string CurrentVersion = "0.2.0";
+    private const string UpdateManifestUrl = "https://raw.githubusercontent.com/Benson-YiYan/InvoiceAssistant/main/windows/windows-update.json";
 
     public MainWindow()
     {
@@ -55,6 +62,12 @@ public sealed partial class MainWindow : Window
         Directory.CreateDirectory(_dataDirectory);
         LoadJson(Path.Combine(_dataDirectory, "records.json"), _allInvoices);
         LoadJson(Path.Combine(_dataDirectory, "folders.json"), _folders);
+        try
+        {
+            var settingsPath = Path.Combine(_dataDirectory, "settings.json");
+            if (File.Exists(settingsPath)) _settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(settingsPath), JsonOptions) ?? new();
+        }
+        catch { }
         if (_allInvoices.Count == 0 && _folders.Count == 0)
         {
             LoadJson(Path.Combine(_legacyDataDirectory, "records.json"), _allInvoices);
@@ -97,6 +110,7 @@ public sealed partial class MainWindow : Window
             JsonSerializer.Serialize(_allInvoices, JsonOptions));
         File.WriteAllText(Path.Combine(_dataDirectory, "folders.json"),
             JsonSerializer.Serialize(_folders, JsonOptions));
+        File.WriteAllText(Path.Combine(_dataDirectory, "settings.json"), JsonSerializer.Serialize(_settings, JsonOptions));
     }
 
     private void PopulateFolders()
@@ -371,24 +385,137 @@ public sealed partial class MainWindow : Window
 
     private async void ReviewButton_Click(object sender, RoutedEventArgs e)
     {
-        await new ContentDialog
+        var candidates = (InvoiceList.SelectedItems.Count > 0
+            ? InvoiceList.SelectedItems.Cast<InvoiceRecord>()
+            : VisibleInvoices()).Where(item => !string.IsNullOrWhiteSpace(item.Text)).ToList();
+        if (candidates.Count == 0) { StatusText.Text = "当前范围没有可供 AI 复核的已识别文字。"; return; }
+        var checks = new StackPanel { Spacing = 6 };
+        var boxes = candidates.Select(item => new CheckBox
         {
-            Title = "AI 复核正在接入",
-            Content = "下一步将加入 API、Codex CLI 和 DeepSeek Harness 配置。当前版已支持本机 OCR、文件夹归档和金额/类别整理。",
-            CloseButtonText = "知道了",
+            Content = $"{item.FileName}  ·  {item.Category}  ·  {(item.Amount?.ToString("C2", CultureInfo.GetCultureInfo("zh-CN")) ?? "金额待识别")}",
+            IsChecked = true
+        }).ToList();
+        foreach (var box in boxes) checks.Children.Add(box);
+        var scroll = new ScrollViewer { Content = checks, MaxHeight = 360 };
+        var dialog = new ContentDialog
+        {
+            Title = $"即将使用 AI 复核以下的 {candidates.Count} 张发票，确定吗？",
+            Content = scroll,
+            PrimaryButtonText = "确定",
+            CloseButtonText = "取消",
             XamlRoot = RootXamlElement.XamlRoot
-        }.ShowAsync();
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        var chosen = candidates.Where((_, index) => boxes[index].IsChecked == true).ToList();
+        if (chosen.Count == 0) return;
+        ReviewButton.IsEnabled = false;
+        foreach (var invoice in chosen)
+        {
+            try { await ReviewInvoiceAsync(invoice); }
+            catch (Exception ex) { invoice.Status = "复核失败"; StatusText.Text = ex.Message; }
+        }
+        SaveData();
+        RefreshInvoices();
+        ReviewButton.IsEnabled = true;
+        StatusText.Text = $"已完成 {chosen.Count} 张发票的 AI 复核。";
     }
 
     private async void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        await new ContentDialog
+        var provider = new ComboBox { ItemsSource = new[] { "API（兼容 OpenAI 格式）", "已安装的 Codex CLI", "DeepSeek Harness" }, SelectedIndex = _settings.Provider switch { "api" => 0, "harness" => 2, _ => 1 } };
+        var endpoint = new TextBox { Text = _settings.Endpoint, PlaceholderText = "https://api.example.com/v1" };
+        var model = new TextBox { Text = _settings.Model, PlaceholderText = "模型名称" };
+        var key = new PasswordBox { PlaceholderText = HasApiKey() ? "已保存密钥；输入新值可替换" : "输入 API 密钥" };
+        var codex = new TextBox { Text = _settings.CodexCommand, PlaceholderText = "留空自动查找 codex" };
+        var harness = new TextBox { Text = _settings.HarnessCommand, PlaceholderText = "命令接收 stdin 并返回 JSON" };
+        var checkUpdate = new Button { Content = "检查更新", HorizontalAlignment = HorizontalAlignment.Left };
+        var updateText = new TextBlock { Text = "更新状态：尚未检查", TextWrapping = TextWrapping.Wrap };
+        checkUpdate.Click += async (_, _) => await CheckForUpdatesAsync(updateText);
+        var clearKey = new Button { Content = "清除已保存密钥", HorizontalAlignment = HorizontalAlignment.Left };
+        clearKey.Click += (_, _) => { _settings.ApiKey = ""; key.Password = ""; SaveData(); updateText.Text = "已清除 API 密钥。"; };
+        var form = new StackPanel { Spacing = 12, MinWidth = 560 };
+        foreach (var pair in new (string, Control)[] { ("整理方式", provider), ("API 地址", endpoint), ("模型名称", model), ("API 密钥", key), ("Codex 命令", codex), ("Harness 命令", harness) })
+        { form.Children.Add(new TextBlock { Text = pair.Item1, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold }); form.Children.Add(pair.Item2); }
+        form.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { clearKey, checkUpdate } });
+        form.Children.Add(updateText);
+        var dialog = new ContentDialog { Title = "AI 设置与检查更新", Content = new ScrollViewer { Content = form, MaxHeight = 560 }, PrimaryButtonText = "保存设置", CloseButtonText = "取消", XamlRoot = RootXamlElement.XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        _settings.Provider = provider.SelectedIndex switch { 0 => "api", 2 => "harness", _ => "codex" };
+        _settings.Endpoint = endpoint.Text.Trim(); _settings.Model = model.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(key.Password)) _settings.ApiKey = Protect(key.Password);
+        _settings.CodexCommand = codex.Text.Trim(); _settings.HarnessCommand = harness.Text.Trim();
+        SaveData();
+        StatusText.Text = "AI 设置已保存到本机。";
+    }
+
+    private bool HasApiKey() => !string.IsNullOrWhiteSpace(_settings.ApiKey);
+    private static string Protect(string value) => Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(value), null, DataProtectionScope.CurrentUser));
+    private static string Unprotect(string value)
+    {
+        try { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(value), null, DataProtectionScope.CurrentUser)); }
+        catch { return ""; }
+    }
+
+    private async Task ReviewInvoiceAsync(InvoiceRecord invoice)
+    {
+        var prompt = $"请严格只返回 JSON：{{\"vendor\":\"\",\"date\":\"YYYY-MM-DD\",\"invoiceNo\":\"\",\"amount\":0,\"category\":\"费用类别\",\"summary\":\"\",\"needsReview\":false}}。费用类别只能从 {string.Join("、", CategoryNames)} 中选择。发票文件名：{invoice.FileName}\\n识别文字：\\n{invoice.Text}";
+        string raw;
+        if (_settings.Provider == "api")
         {
-            Title = "AI 设置与检查更新",
-            Content = "Windows 版的 AI 提供方与 GitHub 更新接入会在下一阶段完成。",
-            CloseButtonText = "关闭",
-            XamlRoot = RootXamlElement.XamlRoot
-        }.ShowAsync();
+            var endpoint = _settings.Endpoint.TrimEnd('/');
+            if (!endpoint.EndsWith("/chat/completions")) endpoint += "/chat/completions";
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            var apiKey = Unprotect(_settings.ApiKey);
+            if (!string.IsNullOrWhiteSpace(apiKey)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            request.Content = new StringContent(JsonSerializer.Serialize(new { model = _settings.Model, temperature = 0, response_format = new { type = "json_object" }, messages = new[] { new { role = "user", content = prompt } } }), Encoding.UTF8, "application/json");
+            using var response = await client.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"API 返回 {((int)response.StatusCode)}：{body[..Math.Min(240, body.Length)]}");
+            using var doc = JsonDocument.Parse(body); raw = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+        }
+        else
+        {
+            var command = _settings.Provider == "harness" ? _settings.HarnessCommand : (_settings.CodexCommand.Length > 0 ? _settings.CodexCommand : "codex");
+            if (string.IsNullOrWhiteSpace(command)) throw new InvalidOperationException("请先配置 AI 命令。");
+            var psi = new ProcessStartInfo("cmd.exe", $"/c {command}") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException("无法启动 AI 命令。");
+            await process.StandardInput.WriteAsync(prompt); process.StandardInput.Close();
+            raw = await process.StandardOutput.ReadToEndAsync(); await process.WaitForExitAsync();
+            if (process.ExitCode != 0) throw new InvalidOperationException("AI 命令执行失败。");
+        }
+        var jsonStart = raw.IndexOf('{'); var jsonEnd = raw.LastIndexOf('}');
+        if (jsonStart < 0 || jsonEnd <= jsonStart) throw new InvalidOperationException("AI 返回不是有效 JSON。");
+        using var result = JsonDocument.Parse(raw[jsonStart..(jsonEnd + 1)]);
+        var root = result.RootElement;
+        if (root.TryGetProperty("vendor", out var vendor)) invoice.Vendor = vendor.GetString() ?? invoice.Vendor;
+        if (root.TryGetProperty("date", out var date)) invoice.Date = date.GetString() ?? invoice.Date;
+        if (root.TryGetProperty("invoiceNo", out var number)) invoice.InvoiceNo = number.GetString() ?? invoice.InvoiceNo;
+        if (root.TryGetProperty("summary", out var summary)) invoice.Summary = summary.GetString() ?? "";
+        if (root.TryGetProperty("amount", out var amount) && amount.TryGetDecimal(out var value)) invoice.Amount = value;
+        if (root.TryGetProperty("category", out var category) && CategoryNames.Contains(category.GetString())) invoice.Category = category.GetString()!;
+        invoice.Status = "已复核";
+    }
+
+    private async Task CheckForUpdatesAsync(TextBlock status)
+    {
+        try
+        {
+            using var client = new HttpClient();
+            var json = await client.GetStringAsync(UpdateManifestUrl);
+            var manifest = JsonSerializer.Deserialize<WindowsUpdateManifest>(json, JsonOptions) ?? throw new InvalidOperationException("更新清单无效。");
+            if (string.Compare(manifest.Version, CurrentVersion, StringComparison.OrdinalIgnoreCase) <= 0) { status.Text = $"更新状态：当前已是最新版本（{CurrentVersion}）。"; return; }
+            status.Text = $"发现新版本 {manifest.Version}，正在下载并校验…";
+            var bytes = await client.GetByteArrayAsync(manifest.DownloadUrl);
+            if (bytes.Length != manifest.Size) throw new InvalidOperationException("下载大小校验失败。");
+            var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            if (!hash.Equals(manifest.Sha256, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("SHA-256 校验失败。");
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", $"发票小秘书-Setup-{manifest.Version}-x64.exe");
+            await File.WriteAllBytesAsync(path, bytes);
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            status.Text = "下载并校验完成，安装程序已打开。";
+        }
+        catch (Exception ex) { status.Text = $"更新检查失败：{ex.Message}"; }
     }
 
     private void Invoice_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -419,6 +546,7 @@ public sealed class InvoiceRecord : INotifyPropertyChanged
     public string InvoiceNo { get; set; } = "";
     public string Status { get; set; } = "待复核";
     public string FolderId { get; set; } = "root";
+    public string Summary { get; set; } = "";
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private decimal? _amount;
@@ -445,4 +573,23 @@ public sealed class InvoiceRecord : INotifyPropertyChanged
     };
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+public sealed class AppSettings
+{
+    public string Provider { get; set; } = "codex";
+    public string Endpoint { get; set; } = "";
+    public string Model { get; set; } = "";
+    public string ApiKey { get; set; } = "";
+    public string CodexCommand { get; set; } = "";
+    public string HarnessCommand { get; set; } = "";
+}
+
+public sealed class WindowsUpdateManifest
+{
+    public string Version { get; set; } = "";
+    public string Architecture { get; set; } = "x64";
+    public string DownloadUrl { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+    public long Size { get; set; }
 }
