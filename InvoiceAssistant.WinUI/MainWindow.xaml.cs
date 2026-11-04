@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Windows.Data.Pdf;
 using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
