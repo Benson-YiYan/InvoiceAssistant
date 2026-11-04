@@ -1,0 +1,127 @@
+<Window
+    x:Class="InvoiceAssistant.WinUI.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:InvoiceAssistant.WinUI"
+    Title="发票小秘书">
+    <Grid Background="#F5F7FA">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Border Grid.Row="0" Background="White" BorderBrush="#DCE2E8" BorderThickness="0,0,0,1" Padding="22,14">
+            <Grid ColumnSpacing="18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="发票小秘书" FontSize="22" FontWeight="SemiBold" />
+                    <TextBlock Text="发票归档 · 本机 OCR · 人工复核" Foreground="#65717E" FontSize="13" />
+                </StackPanel>
+                <Button Grid.Column="1" x:Name="SettingsButton" Content="AI 设置与更新" Click="SettingsButton_Click" VerticalAlignment="Center" />
+                <Button Grid.Column="2" x:Name="ImportButton" Content="导入发票" Click="ImportButton_Click" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+        <Grid Grid.Row="1" ColumnSpacing="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" MinWidth="220" />
+                <ColumnDefinition Width="*" MinWidth="560" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Background="#FAFBFC" BorderBrush="#DCE2E8" BorderThickness="0,0,1,0" Padding="14">
+                <Grid RowSpacing="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="文件夹" FontSize="15" FontWeight="SemiBold" Margin="5,3,0,3" />
+                    <TreeView x:Name="FolderTree" Grid.Row="1" SelectionMode="Single" ItemInvoked="FolderTree_ItemInvoked" />
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+                        <Button Content="新建文件夹" Click="NewFolderButton_Click" />
+                        <Button Content="删除文件夹" Click="DeleteFolderButton_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Grid Grid.Column="1" Padding="22,18,22,14" RowSpacing="14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="FolderHeading" Text="全部发票" FontSize="23" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="AI 复核" Click="ReviewButton_Click" />
+                    <Button Grid.Column="2" Content="删除所选" Click="DeleteSelectedButton_Click" />
+                    <Button Grid.Column="3" Content="导出 CSV" Click="ExportButton_Click" />
+                </Grid>
+                <Border Grid.Row="1" Background="White" BorderBrush="#DCE2E8" BorderThickness="1" Padding="14,11">
+                    <StackPanel Orientation="Horizontal" Spacing="24">
+                        <StackPanel>
+                            <TextBlock Text="当前范围金额" Foreground="#65717E" FontSize="12" />
+                            <TextBlock x:Name="AmountSummary" Text="¥0.00" FontSize="24" FontWeight="SemiBold" />
+                        </StackPanel>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="CountSummary" Text="0 张发票" FontSize="15" />
+                            <TextBlock Text="选中发票时显示所选合计" Foreground="#65717E" FontSize="12" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                <Grid Grid.Row="2" RowSpacing="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="40" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid Background="#EAF0F5" Padding="12,0" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2.2*" />
+                            <ColumnDefinition Width="1.25*" />
+                            <ColumnDefinition Width="1.2*" />
+                            <ColumnDefinition Width="1.1*" />
+                            <ColumnDefinition Width="1*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="文件名" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="销方" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="费用类别" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="金额" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="4" Text="状态" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    </Grid>
+                    <ListView x:Name="InvoiceList" Grid.Row="1" SelectionMode="Multiple" SelectionChanged="InvoiceList_SelectionChanged" Background="White" BorderBrush="#DCE2E8" BorderThickness="1">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:InvoiceRecord">
+                                <Grid MinHeight="48" Padding="10,4" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2.2*" />
+                                        <ColumnDefinition Width="1.25*" />
+                                        <ColumnDefinition Width="1.2*" />
+                                        <ColumnDefinition Width="1.1*" />
+                                        <ColumnDefinition Width="1*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind FileName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind Vendor}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    <ComboBox Grid.Column="2" ItemsSource="{x:Bind Categories}" SelectedItem="{x:Bind Category, Mode=TwoWay}" VerticalAlignment="Center" MinWidth="110" />
+                                    <NumberBox Grid.Column="3" Value="{x:Bind AmountValue, Mode=TwoWay}" SpinButtonPlacementMode="Inline" SmallChange="1" LargeChange="10" />
+                                    <TextBlock Grid.Column="4" Text="{x:Bind Status}" VerticalAlignment="Center" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <TextBlock x:Name="EmptyState" Grid.Row="1" Text="这个文件夹还没有发票。点击“导入发票”开始归档。" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#65717E" IsHitTestVisible="False" />
+                </Grid>
+                <TextBlock Grid.Row="3" x:Name="StatusText" Text="文件与识别记录保存在本机。" Foreground="#65717E" FontSize="12" />
+            </Grid>
+        </Grid>
+        <Border Grid.Row="2" Background="White" BorderBrush="#DCE2E8" BorderThickness="0,1,0,0" Padding="22,8">
+            <TextBlock Text="发票小秘书  ·  原始发票文件不会被移动或删除" Foreground="#65717E" FontSize="12" />
+        </Border>
+    </Grid>
+</Window>
