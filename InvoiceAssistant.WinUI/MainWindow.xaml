@@ -60,7 +60,7 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="FolderHeading" Text="全部发票" FontSize="23" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <Button Grid.Column="1" Content="AI 复核" Click="ReviewButton_Click" />
+                    <Button x:Name="ReviewButton" Grid.Column="1" Content="AI 复核" Click="ReviewButton_Click" />
                     <Button Grid.Column="2" Content="删除所选" Click="DeleteSelectedButton_Click" />
                     <Button Grid.Column="3" Content="导出 CSV" Click="ExportButton_Click" />
                 </Grid>
@@ -97,7 +97,7 @@
                     </Grid>
                     <ListView x:Name="InvoiceList" Grid.Row="1" SelectionMode="Multiple" SelectionChanged="InvoiceList_SelectionChanged" Background="White" BorderBrush="#DCE2E8" BorderThickness="1">
                         <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="local:InvoiceRecord">
+                            <DataTemplate>
                                 <Grid MinHeight="48" Padding="10,4" ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="2.2*" />
@@ -106,11 +106,11 @@
                                         <ColumnDefinition Width="1.1*" />
                                         <ColumnDefinition Width="1*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{x:Bind FileName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Text="{x:Bind Vendor}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                    <ComboBox Grid.Column="2" ItemsSource="{x:Bind Categories}" SelectedItem="{x:Bind Category, Mode=TwoWay}" VerticalAlignment="Center" MinWidth="110" />
-                                    <NumberBox Grid.Column="3" Value="{x:Bind AmountValue, Mode=TwoWay}" SpinButtonPlacementMode="Inline" SmallChange="1" LargeChange="10" />
-                                    <TextBlock Grid.Column="4" Text="{x:Bind Status}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding FileName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Vendor}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    <ComboBox Grid.Column="2" ItemsSource="{Binding Categories}" SelectedItem="{Binding Category, Mode=TwoWay}" VerticalAlignment="Center" MinWidth="110" />
+                                    <NumberBox Grid.Column="3" Value="{Binding AmountValue, Mode=TwoWay}" SpinButtonPlacementMode="Inline" SmallChange="1" LargeChange="10" />
+                                    <TextBlock Grid.Column="4" Text="{Binding Status}" VerticalAlignment="Center" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
