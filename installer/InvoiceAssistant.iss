@@ -1,6 +1,6 @@
 #pragma codepage 65001
 #define AppName "发票小秘书"
-#define AppVersion "0.1.0"
+#define AppVersion "0.2.0"
 #define AppPublisher "Benson"
 #define AppExeName "InvoiceAssistant.WinUI.exe"
 
